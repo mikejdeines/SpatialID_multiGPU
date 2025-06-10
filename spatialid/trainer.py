@@ -57,6 +57,9 @@ class SpatialTrainer(Base):
     def set_model(self, input_dim, num_classes):
         gae_dim, dae_dim, feat_dim = [32, 8], [100, 20], 64
         self.model = SpatialModel(input_dim, num_classes, gae_dim, dae_dim, feat_dim).to(self.device)
+        if torch.cuda.device_count() > 1:
+            self.model = torch.nn.DataParallel(self.model)
+        self.model = self.model.to(self.device)
         self.criterion = KDLoss(1)
 
     def set_optimizer(self, lr=0.01, weight_decay=0.0001, **kwargs):
@@ -115,6 +118,9 @@ class DnnTrainer(Base):
 
     def set_model(self, input_dims, hidden_dims, output_dims, gamma, alpha, reduction, **kwargs):
         self.model = DNNModel(input_dims, hidden_dims, output_dims).to(self.device)
+        if torch.cuda.device_count() > 1:
+            self.model = torch.nn.DataParallel(self.model)
+        self.model = self.model.to(self.device)
         self.criterion = MultiCEFocalLoss(class_num=self.n_types, gamma=gamma, alpha=alpha, reduction=reduction)
 
     def set_optimizer(self, lr=3e-4, weight_decay=1e-6, **kwargs):
