@@ -22,7 +22,7 @@ class Base:
         self.scheduler = None
         self.criterion = None
         if device > -1 and torch.cuda.is_available():
-            self.device = torch.device(f"cuda:{device}")
+            self.device = torch.device(f"cuda:0")
         else:
             self.device = torch.device("cpu")
 
