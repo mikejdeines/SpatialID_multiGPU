@@ -20,7 +20,9 @@ def setup(rank, world_size):
     os.environ["MASTER_ADDR"] = "localhost"
     os.environ["MASTER_PORT"] = "12355"
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
-    torch.cuda.set_device(rank)
+    # Use SLURM_LOCALID if available, otherwise fallback to rank
+    local_rank = int(os.environ.get("SLURM_LOCALID", rank))
+    torch.cuda.set_device(local_rank)
 
 def cleanup():
     dist.destroy_process_group()
@@ -71,7 +73,10 @@ class SpatialTrainer(Base):
         gae_dim, dae_dim, feat_dim = [32, 8], [100, 20], 64
         model = SpatialModel(input_dim, num_classes, gae_dim, dae_dim, feat_dim).to(self.device)
         if self.use_ddp:
-            self.model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[self.rank])
+            # Use SLURM_LOCALID if available, otherwise fallback to self.rank
+            local_rank = int(os.environ.get("SLURM_LOCALID", self.rank))
+            torch.cuda.set_device(local_rank)
+            self.model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[local_rank])
         else:
             self.model = model
         self.criterion = KDLoss(1)
@@ -136,7 +141,10 @@ class DnnTrainer(Base):
     def set_model(self, input_dims, hidden_dims, output_dims, gamma, alpha, reduction, **kwargs):
         model = DNNModel(input_dims, hidden_dims, output_dims).to(self.device)
         if self.use_ddp:
-            self.model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[self.rank])
+            # Use SLURM_LOCALID if available, otherwise fallback to self.rank
+            local_rank = int(os.environ.get("SLURM_LOCALID", self.rank))
+            torch.cuda.set_device(local_rank)
+            self.model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[local_rank])
         else:
             self.model = model
         self.criterion = MultiCEFocalLoss(class_num=self.n_types, gamma=gamma, alpha=alpha, reduction=reduction)
