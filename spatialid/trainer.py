@@ -237,14 +237,16 @@ def run_dnn_trainer_ddp(rank, world_size, trainer_args, trainer_kwargs, train_ar
     cleanup()
 
 def launch_training(trainer_cls, trainer_args, trainer_kwargs, train_args):
-    world_size = torch.cuda.device_count()
-    if world_size > 1:
-        if trainer_cls is SpatialTrainer:
-            mp.spawn(run_spatial_trainer_ddp, args=(world_size, trainer_args, trainer_kwargs, train_args),
-                     nprocs=world_size, join=True)
-        elif trainer_cls is DnnTrainer:
-            mp.spawn(run_dnn_trainer_ddp, args=(world_size, trainer_args, trainer_kwargs, train_args),
-                     nprocs=world_size, join=True)
-    else:
-        trainer = trainer_cls(*trainer_args, use_ddp=False, rank=0, world_size=1, **trainer_kwargs)
-        trainer.train(*train_args)
+    # Detect if running with torchrun (i.e., environment variables are set)
+    rank = int(os.environ.get("RANK", 0))
+    local_rank = int(os.environ.get("LOCAL_RANK", rank))
+    world_size = int(os.environ.get("WORLD_SIZE", 1))
+
+    use_ddp = world_size > 1
+
+    # Set the correct CUDA device
+    if torch.cuda.is_available() and use_ddp:
+        torch.cuda.set_device(local_rank)
+
+    trainer = trainer_cls(*trainer_args, use_ddp=use_ddp, rank=rank, world_size=world_size, **trainer_kwargs)
+    trainer.train(*train_args)
