@@ -237,16 +237,19 @@ def run_dnn_trainer_ddp(rank, world_size, trainer_args, trainer_kwargs, train_ar
     cleanup()
 
 def launch_training(trainer_cls, trainer_args, trainer_kwargs, train_args):
-    # Detect if running with torchrun (i.e., environment variables are set)
     rank = int(os.environ.get("RANK", 0))
     local_rank = int(os.environ.get("LOCAL_RANK", rank))
     world_size = int(os.environ.get("WORLD_SIZE", 1))
-
     use_ddp = world_size > 1
 
-    # Set the correct CUDA device
+    # Set the correct CUDA device and initialize DDP process group if needed
     if torch.cuda.is_available() and use_ddp:
         torch.cuda.set_device(local_rank)
+        setup(rank, world_size)  # <-- ADD THIS LINE
 
     trainer = trainer_cls(*trainer_args, use_ddp=use_ddp, rank=rank, world_size=world_size, **trainer_kwargs)
     trainer.train(*train_args)
+
+    # Clean up DDP process group if needed
+    if torch.cuda.is_available() and use_ddp:
+        cleanup()  # <-- ADD THIS LINE
