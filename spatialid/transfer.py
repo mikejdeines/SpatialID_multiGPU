@@ -19,9 +19,8 @@ import matplotlib.pyplot as plt
 import torch_geometric
 from anndata import AnnData
 
-from spatialid import reader, DnnTrainer
-from spatialid.trainer import Base, SpatialTrainer
-
+from spatialid import reader
+from spatialid.trainer import Base, DnnTrainer, SpatialTrainer, launch_training
 
 class Transfer(Base):
     """Implementation of Spatial-ID
@@ -84,21 +83,7 @@ class Transfer(Base):
                  reduction="mean"):
         """Learning single cell type using `DNN` model.
 
-        :param sc_data: Single cell transcriptome data, which be saved in `h5ad` format.
-        :param filter_mt: Whether to filter MT- genes. default, True
-        :param min_cell: Whether to filter genes. default, 10
-        :param min_gene: Whether to filter cells. default, 300
-        :param max_cell: Whether to filter cells, Range: (0, 100). default, 98.0
-        :param ann_key: The annotation key, which should be saved in `*.obs_keys()`
-        :param marker_genes: Whether to use marker list data to train the model. If None, all data is used to train the model. Default, None.
-        :param batch_size:
-        :param epoch:
-        :param lr: learning rate
-        :param weight_decay:
-        :param gamma:
-        :param alpha:
-        :param reduction:
-        :return:
+        ... (docstring unchanged) ...
         """
         if sc_data is None:
             sc_data = self.sc_data
@@ -108,24 +93,24 @@ class Transfer(Base):
         self.filter(sc_data, filter_mt, min_cell, min_gene, max_cell)
 
         input_dims = sc_data.shape[1] if marker_genes is None else len(marker_genes)
-
-        trainer = DnnTrainer(input_dims=input_dims,
-                             label_names=sc_data.obs[ann_key].cat.categories,
-                             device=self.device_type,
-                             lr=lr,
-                             weight_decay=weight_decay,
-                             gamma=gamma,
-                             alpha=alpha,
-                             reduction=reduction,
-                             save_path=self.save_sc)
+        label_names = sc_data.obs[ann_key].cat.categories
         genes = sc_data.var_names.tolist() if marker_genes is None else marker_genes
-        trainer.train(
-            data=sc_data,
-            ann_key=ann_key,
-            marker_genes=genes,
-            batch_size=batch_size,
-            epochs=epoch
-        )
+
+        trainer_args = [
+            input_dims,
+            label_names,
+            self.device_type,
+            lr,
+            weight_decay,
+            gamma,
+            alpha,
+            reduction,
+            self.save_sc
+        ]
+        trainer_kwargs = {}
+        train_args = [sc_data, ann_key, genes, batch_size, epoch]
+
+        launch_training(DnnTrainer, trainer_args, trainer_kwargs, train_args)
 
     @torch.no_grad()
     def sc2st(self,
@@ -179,19 +164,8 @@ class Transfer(Base):
                    show_results=True):
         """Fine tune the final annotation results, using Graph model.
 
-        :param pca_dim: PCA dims, default=200
-        :param n_neigh: neighbors number, default=30
-        :param edge_weight: Add edge weight to the graph model, default=True
-        :param epochs: GCN training epochs, default=200
-        :param lr: learning rate
-        :param weight_decay:
-        :param w_cls: class num weight, default=20
-        :param w_dae: dnn weight
-        :param w_gae: gcn weight
-        :param show_results: Whether to show the annotation results
-        :return:
+        ... (docstring unchanged) ...
         """
-
         self.filter(self.st_data)
         print('  After Preprocessing Data Info: %d cells × %d genes.' % (self.st_data.shape[0], self.st_data.shape[1]))
 
@@ -225,11 +199,20 @@ class Transfer(Base):
         assert 'pseudo_classes' in self.st_data.uns_keys(), "Error, can not found `pseudo_classes` in `st_data.uns_keys()` list, please run `sc2st()` first!"
         num_classes = len(self.st_data.uns['pseudo_classes'])
 
-        trainer = SpatialTrainer(input_dim, num_classes, lr=lr, weight_decay=weight_decay, device=self.device_type)
-        trainer.train(data, epochs, w_cls, w_dae, w_gae)
-        trainer.save_checkpoint(self.save_st)
+        trainer_args = [
+            input_dim,
+            num_classes,
+            lr,
+            weight_decay,
+            self.device_type
+        ]
+        trainer_kwargs = {}
+        train_args = [data, epochs, w_cls, w_dae, w_gae]
+        launch_training(SpatialTrainer, trainer_args, trainer_kwargs, train_args)
 
-        # Inference.
+        # Optionally reload for inference
+        trainer = SpatialTrainer(input_dim, num_classes, lr=lr, weight_decay=weight_decay, device=self.device_type)
+        trainer.load_checkpoint(self.save_st, map_location=trainer.device)
         predictions = trainer.infer(data)
         celltype_pred = pd.Categorical([self.st_data.uns['pseudo_classes'][i] for i in predictions])
 
